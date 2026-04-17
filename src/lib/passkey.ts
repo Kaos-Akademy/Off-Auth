@@ -21,7 +21,7 @@ function toBase64Url(input: Uint8Array): string {
 }
 
 export async function registerPasskey(): Promise<string> {
-  const convexUrl = import.meta.env.VITE_CONVEX_URL as string | undefined;
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
   if (convexUrl) {
     const client = new ConvexHttpClient(convexUrl);
     const begin = await client.action(api.passkeys.beginRegistration, {});
@@ -69,7 +69,7 @@ export async function registerPasskey(): Promise<string> {
 }
 
 export async function loginWithPasskey(): Promise<string | null> {
-  const convexUrl = import.meta.env.VITE_CONVEX_URL as string | undefined;
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
   if (convexUrl) {
     const client = new ConvexHttpClient(convexUrl);
     const begin = await client.action(api.passkeys.beginAuthentication, {});
@@ -109,6 +109,7 @@ export function logoutPasskey(): void {
 }
 
 export function getStoredOwnerKey(): string | null {
+  if (typeof window === "undefined") return null;
   return localStorage.getItem(STORE_KEY);
 }
 

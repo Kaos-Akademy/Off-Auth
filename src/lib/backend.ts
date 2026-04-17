@@ -1,6 +1,6 @@
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../convex/_generated/api";
-import type { Id } from "../../convex/_generated/dataModel";
+import type { Doc, Id } from "../../convex/_generated/dataModel";
 import type { CardEvent, SubscriptionCard } from "../types";
 
 type CreateCardInput = {
@@ -128,7 +128,7 @@ function createConvexClient(url: string): BackendClient {
   return {
     async listCards(ownerKey) {
       const rows = await client.query(api.cards.listByOwner, { ownerKey });
-      return rows.map((row: any) => ({
+      return rows.map((row: Doc<"cards">) => ({
         id: row._id,
         ownerKey: row.ownerKey,
         merchant: row.merchant,
@@ -145,7 +145,7 @@ function createConvexClient(url: string): BackendClient {
     },
     async listEvents(ownerKey) {
       const rows = await client.query(api.cards.listEventsByOwner, { ownerKey });
-      return rows.map((row: any) => ({
+      return rows.map((row: Doc<"cardEvents">) => ({
         id: row._id,
         cardId: row.cardId,
         eventType: row.eventType,
@@ -162,7 +162,7 @@ function createConvexClient(url: string): BackendClient {
   };
 }
 
-const convexUrl = import.meta.env.VITE_CONVEX_URL as string | undefined;
+const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 export const backend: BackendClient = convexUrl
   ? createConvexClient(convexUrl)
   : createLocalClient();

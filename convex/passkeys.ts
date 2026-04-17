@@ -6,8 +6,10 @@ import {
   verifyAuthenticationResponse,
   verifyRegistrationResponse,
 } from "@simplewebauthn/server";
+import type { AuthenticatorTransportFuture } from "@simplewebauthn/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import type { Doc } from "./_generated/dataModel";
 import { action } from "./_generated/server";
 
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
@@ -81,9 +83,12 @@ export const finishRegistration = action({
   },
   handler: async (ctx, args): Promise<{ ownerKey: string }> => {
     const { rpID, expectedOrigin } = env();
-    const challenge: any = await ctx.runQuery(internal.passkeyStore.getChallengeByStateInternal, {
-      stateId: args.stateId,
-    });
+    const challenge: Doc<"passkeyChallenges"> | null = await ctx.runQuery(
+      internal.passkeyStore.getChallengeByStateInternal,
+      {
+        stateId: args.stateId,
+      }
+    );
     if (!challenge || challenge.purpose !== "register" || challenge.ownerKey !== args.ownerKey) {
       throw new Error("Invalid registration state");
     }
@@ -150,9 +155,12 @@ export const finishAuthentication = action({
   },
   handler: async (ctx, args): Promise<{ ownerKey: string }> => {
     const { rpID, expectedOrigin } = env();
-    const challenge: any = await ctx.runQuery(internal.passkeyStore.getChallengeByStateInternal, {
-      stateId: args.stateId,
-    });
+    const challenge: Doc<"passkeyChallenges"> | null = await ctx.runQuery(
+      internal.passkeyStore.getChallengeByStateInternal,
+      {
+        stateId: args.stateId,
+      }
+    );
     if (!challenge || challenge.purpose !== "authenticate") {
       throw new Error("Invalid authentication state");
     }
@@ -161,9 +169,12 @@ export const finishAuthentication = action({
     }
 
     const response = args.responseJSON;
-    const credential: any = await ctx.runQuery(internal.passkeyStore.getByCredentialIdInternal, {
-      credentialId: response.id,
-    });
+    const credential: Doc<"passkeys"> | null = await ctx.runQuery(
+      internal.passkeyStore.getByCredentialIdInternal,
+      {
+        credentialId: response.id,
+      }
+    );
     if (!credential) {
       throw new Error("Unknown passkey");
     }
@@ -176,9 +187,9 @@ export const finishAuthentication = action({
       requireUserVerification: false,
       credential: {
         id: credential.credentialId,
-        publicKey: bytesFromBase64Url(credential.publicKey),
+        publicKey: bytesFromBase64Url(credential.publicKey) as Uint8Array<ArrayBuffer>,
         counter: credential.counter,
-        transports: credential.transports,
+        transports: credential.transports as AuthenticatorTransportFuture[],
       },
     });
 

@@ -1,4 +1,7 @@
+"use client";
+
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useFlowCurrentUser } from "@onflow/react-sdk";
 import { backend } from "./lib/backend";
 import {
   getStoredOwnerKey,
@@ -6,9 +9,15 @@ import {
   logoutPasskey,
   registerPasskey,
 } from "./lib/passkey";
-import { AuthPanel } from "./components/AuthPanel";
-import { CardComposer, type CardFormState } from "./components/CardComposer";
-import { CardList } from "./components/CardList";
+import type { AppTab } from "./components/AppShell";
+import { AppShell } from "./components/AppShell";
+import { LandingPage } from "./components/LandingPage";
+import { LoginScreen } from "./components/LoginScreen";
+import { DashboardView } from "./components/DashboardView";
+import { VirtualCardsView } from "./components/VirtualCardsView";
+import { ActivityView } from "./components/ActivityView";
+import { WalletSecurityView } from "./components/WalletSecurityView";
+import type { CardFormState } from "./formTypes";
 import type { CardEvent, SubscriptionCard } from "./types";
 
 const EMPTY_FORM: CardFormState = {
@@ -16,15 +25,38 @@ const EMPTY_FORM: CardFormState = {
   monthlyAmount: "15.99",
   months: "3",
   buffer: "0",
+  cardKind: "subscription",
 };
 
+function ownerLabel(key: string): string {
+  if (key.length <= 18) return key;
+  return `${key.slice(0, 10)}…${key.slice(-6)}`;
+}
+
 export default function App() {
-  const [ownerKey, setOwnerKey] = useState<string | null>(getStoredOwnerKey());
+  const { user: flowUser, unauthenticate } = useFlowCurrentUser();
+  /** Avoid reading localStorage in useState initializer — Next SSR runs this on the server. */
+  const [ownerKey, setOwnerKey] = useState<string | null>(null);
   const [cards, setCards] = useState<SubscriptionCard[]>([]);
   const [events, setEvents] = useState<CardEvent[]>([]);
   const [form, setForm] = useState<CardFormState>(EMPTY_FORM);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<AppTab>("dashboard");
+  /** When not signed in: show marketing landing until user chooses Log in / Get started. */
+  const [authOpen, setAuthOpen] = useState(false);
+
+  useEffect(() => {
+    setOwnerKey(getStoredOwnerKey());
+  }, []);
+
+  /** If there is no passkey in storage but FCL restores a Flow session, use the wallet address as owner identity. */
+  useEffect(() => {
+    if (getStoredOwnerKey()) return;
+    const addr = flowUser?.loggedIn && flowUser.addr ? String(flowUser.addr).trim() : "";
+    if (!addr) return;
+    setOwnerKey((prev) => (prev === addr ? prev : addr));
+  }, [flowUser?.loggedIn, flowUser?.addr]);
 
   async function reload(key: string) {
     const [nextCards, nextEvents] = await Promise.all([
@@ -84,7 +116,9 @@ export default function App() {
     setBusy(true);
     try {
       const monthlyAmount = Math.round(Number(form.monthlyAmount) * 100);
-      const cycleCount = Number(form.months);
+      let cycleCount = Number(form.months);
+      if (form.cardKind === "one_time" || form.cardKind === "trial") cycleCount = Math.max(1, cycleCount);
+      if (!Number.isFinite(cycleCount) || cycleCount < 1) cycleCount = 1;
       const bufferCents = Math.round(Number(form.buffer) * 100);
       await backend.createCard({
         ownerKey,
@@ -116,39 +150,58 @@ export default function App() {
     }
   }
 
-  if (!ownerKey)
+  function onLogout() {
+    logoutPasskey();
+    unauthenticate();
+    setOwnerKey(null);
+    setCards([]);
+    setEvents([]);
+    setTab("dashboard");
+    setAuthOpen(false);
+  }
+
+  if (!ownerKey) {
+    if (!authOpen) {
+      return <LandingPage onOpenAuth={() => setAuthOpen(true)} />;
+    }
     return (
-      <AuthPanel
+      <LoginScreen
         busy={busy}
         error={error}
         onCreatePasskey={onCreateAnonymousPasskey}
         onSignIn={onPasskeyLogin}
+        onFlowWalletConnected={(flowAddress) => {
+          setError(null);
+          setOwnerKey(flowAddress);
+          setTab("dashboard");
+        }}
+        onBack={() => {
+          setAuthOpen(false);
+          setError(null);
+        }}
       />
     );
+  }
 
   return (
-    <main className="shell">
-      <header className="top">
-        <div>
-          <h1>Subscriptions</h1>
-          <p className="muted">Signed in: {ownerKey}</p>
-        </div>
-        <button
-          className="ghost"
-          onClick={() => {
-            logoutPasskey();
-            setOwnerKey(null);
-            setCards([]);
-            setEvents([]);
-          }}
-        >
-          Log out
-        </button>
-      </header>
-
-      <CardComposer busy={busy} form={form} onChange={setForm} onSubmit={onCreateCard} />
-      <CardList cards={cards} eventsByCard={eventsByCard} busy={busy} onUnsubscribe={onUnsubscribe} />
+    <AppShell tab={tab} onTab={setTab} ownerShort={ownerLabel(ownerKey)} onLogout={onLogout}>
       {error ? <p className="error">{error}</p> : null}
-    </main>
+      {tab === "dashboard" ? <DashboardView cards={cards} events={events} /> : null}
+      {tab === "virtual-cards" ? (
+        <VirtualCardsView
+          cards={cards}
+          eventsByCard={eventsByCard}
+          form={form}
+          onChange={setForm}
+          onSubmit={onCreateCard}
+          busy={busy}
+          onUnsubscribe={onUnsubscribe}
+        />
+      ) : null}
+      {tab === "activity" ? (
+        <ActivityView cards={cards} busy={busy} onUnsubscribe={onUnsubscribe} />
+      ) : null}
+      {tab === "wallet" ? <WalletSecurityView ownerKey={ownerKey} /> : null}
+    </AppShell>
   );
 }
